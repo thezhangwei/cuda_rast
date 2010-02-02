@@ -7,12 +7,13 @@ __global__ void transform_kernel( float4* outpos, float4* inpos, unsigned int wi
 	unsigned int bx = threadIdx.x;
 	unsigned int by = threadIdx.y;
 
-    // TODO :: Write some value to pos[y*width + x], and make a particle system!
+    // test code: passing vertices without transformation
 	/*outpos[ty*width + tx].x = inpos[ty*width + tx].x ;
 	outpos[ty*width + tx].y = inpos[ty*width + tx].y ;
 	outpos[ty*width + tx].z = inpos[ty*width + tx].z ;
 	outpos[ty*width + tx].w = inpos[ty*width + tx].w ;*/
 
+	
 	////////////////////////////////////////////////////////////////////////////
 	// shared memory
 	////////////////////////////////////////////////////////////////////////////
@@ -80,7 +81,7 @@ __global__ void transform_kernel( float4* outpos, float4* inpos, unsigned int wi
 								+ vps[14] * coords[bx][by].z
 								+ vps[15] * coords[bx][by].w;
 	
-	//__syncthreads();
+	__syncthreads();
 
 }
 

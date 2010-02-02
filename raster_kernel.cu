@@ -9,6 +9,11 @@
 #include <stdio.h>
 #include "cutil_math.h"
 
+// texture 
+float4* d_triSrc;
+
+texture<float4, 1, cudaReadModeElementType> tex_triSrc;
+
 #define SDATA( index)      cutilBankChecker(sdata, index)
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -118,93 +123,103 @@ __device__ uint rgbaFloatToInt(float4 rgba)
 
 
 
-__global__ void triangle_setup_kernel( uint* o_buff, float4* i_verts, unsigned int triNum, unsigned int pntNum)
+__global__ void triangle_setup_kernel( uint* o_buff, float4* i_verts, unsigned int triNum, unsigned int vpt)
 {
 	//////////////////////////
 	// Indices 
 	//////////////////////////
-    unsigned int tx = blockIdx.x*blockDim.x; //tile index.x
-    unsigned int ty = blockIdx.y*blockDim.y; //tile index.y
-	unsigned int px = threadIdx.x; // pixel index.x
-	unsigned int py = threadIdx.y; // pixel index.y
+	unsigned int px = blockIdx.x*blockDim.x + threadIdx.x; // pixel index x
+	unsigned int py = blockIdx.y*blockDim.y + threadIdx.y; // pixel index y
+	unsigned int tx = threadIdx.x; // thread index x in block
+	unsigned int ty = threadIdx.y; // thread index y in block
 	unsigned int idx = threadIdx.x*blockDim.x + threadIdx.y; // thread index
+	//unsigned int triIdx = py*blockDim.x*gridDim.x + by + idx; // global index of the triangle array
 
+	const float xpix = (float) px + 0.5f;
+	const float ypix = (float) py + 0.5f;
+	
 	//////////////////////////
 	// Shared memory
 	//////////////////////////
-	__shared__ float4 p1[16];
-	__shared__ float4 p2[16];
-	__shared__ float4 p3[16];
-	__shared__ float3 c1[16];
-	__shared__ float3 c2[16];
-	__shared__ float3 c3[16];
-	__shared__ float signed_area[16];
-	__shared__ bool rej[16];
-	__shared__ bool acp[16];
-	__shared__ uint s_buff[16][16];
+	__shared__ float4	p1[16], 
+						p2[16], 
+						p3[16]; //768
+	__shared__ float2	c1[16], 
+						c2[16], 
+						c3[16]; //384
+	//__shared__ float signed_area[16];
+	//__shared__ bool rej[16];
+	//__shared__ bool acp[16];
+	__shared__ uint s_buff[16][16][4]; //4096
 
 	//////////////////////////
 	// initialize s_buff
 	//////////////////////////
-	s_buff[px][py] = 0;
-	
-	
+	s_buff[tx][ty][0] = 0;
+	s_buff[tx][ty][1] = 0;
+	s_buff[tx][ty][2] = 0;
+	s_buff[tx][ty][3] = 0;
+	//rej[idx] = false;
+	//acp[idx] = true;
 	//////////////////////////
 	// load vertices
 	//////////////////////////
 	//float4* i_vert2 = (float4*)((char*)i_verts + pitch);
 	//float4* i_vert3 = (float4*)((char*)i_verts + 2*pitch);
 
-	//unsigned int i = 0;
-	//for(unsigned int i = 0; i < triNum; i++)
-	//{
-		// fetch interleaving array 16 tris at a time
-		//p1[px] = i_verts[px + i*blockDim.x];
-		//p2[px] = i_verts[px + i*blockDim.x + triNum];
-		//p3[px] = i_verts[px + i*blockDim.x + 2*triNum];
+	//fetch 16 tris at one time !!
+	unsigned int triLeft = triNum;
+	for(unsigned int cnt = 0; cnt < (triNum-1)/blockDim.x + 1; cnt++)
+	{
+		// fetch interleaving array tris at a time
+		unsigned int triFch = (triLeft >= blockDim.x)? (blockDim.x) : (triLeft);
+		//(a % b != 0) ? (a / b + 1) : (a / b);
+		if((idx) < triFch){
+			
+			unsigned int itmp = idx;
+
+			p1[itmp] = tex1Dfetch(tex_triSrc, cnt*blockDim.x*vpt + 3*idx);
+			p2[itmp] = tex1Dfetch(tex_triSrc, cnt*blockDim.x*vpt + 3*idx + 1);
+			p3[itmp] = tex1Dfetch(tex_triSrc, cnt*blockDim.x*vpt + 3*idx + 2);
+			//p2[itmp] = i_verts[cnt*blockDim.x*vpt + 3*idx + 1];
+			//p3[itmp] = i_verts[cnt*blockDim.x*vpt + 3*idx + 2];
 		
-		//if(px == 0 && py == 0)
-		//{
-			// fetch continuous array 1 tri at a time 
-			/*p1[px] = i_verts[i*3];
-			p2[px] = i_verts[i*3 + 1];
-			p3[px] = i_verts[i*3 + 2];
-
-			__syncthreads();
-	
-			//////////////////////////
-			// area of the triangle CCW positive !!
-			//////////////////////////
-			signed_area[px] =	(p2[px].x - p1[px].x)*(p3[px].y - p1[px].y) - 
-								(p3[px].x - p1[px].x)*(p2[px].y - p1[px].y);
-
 			//////////////////////////
 			// setup edge func coefs !!! + inside !!!
 			//////////////////////////
-			c1[px].x = p1[px].y - p2[px].y;
-			c1[px].y = p2[px].x - p1[px].x;
-			c2[px].x = p2[px].y - p3[px].y;
-			c2[px].y = p3[px].x - p2[px].x;
-			c3[px].x = p3[px].y - p1[px].y;
-			c3[px].y = p1[px].x - p3[px].x;
+			c1[itmp].x = p1[itmp].y - p2[itmp].y;
+			c1[itmp].y = p2[itmp].x - p1[itmp].x;
+			c2[itmp].x = p2[itmp].y - p3[itmp].y;
+			c2[itmp].y = p3[itmp].x - p2[itmp].x;
+			c3[itmp].x = p3[itmp].y - p1[itmp].y;
+			c3[itmp].y = p1[itmp].x - p3[itmp].x;
 
-			if(signed_area < 0)
+			//////////////////////////
+			// area of the triangle CCW positive !!
+			//////////////////////////
+			/*signed_area[itmp] =	(p2[itmp].x - p1[itmp].x)*(p3[itmp].y - p1[itmp].y) - 
+								(p3[itmp].x - p1[itmp].x)*(p2[itmp].y - p1[itmp].y);
+
+			if(signed_area[itmp] < 0)
 			{
-				c1[px].x = -c1[px].x;
-				c1[px].y = -c1[px].y;
-				c2[px].x = -c2[px].x;
-				c2[px].y = -c2[px].y;
-				c3[px].x = -c3[px].x;
-				c3[px].y = -c3[px].y;
+				c1[itmp].x = -c1[itmp].x;
+				c1[itmp].y = -c1[itmp].y;
+				c2[itmp].x = -c2[itmp].x;
+				c2[itmp].y = -c2[itmp].y;
+				c3[itmp].x = -c3[itmp].x;
+				c3[itmp].y = -c3[itmp].y;
 			}
 
-			//c1[px].z = - c1[px].x*p1[px].x - c1[px].y*p1[px].y;
-			//c2[px].z = - c2[px].x*p2[px].x - c2[px].y*p2[px].y;
-			//c3[px].z = - c3[px].x*p3[px].x - c3[px].y*p3[px].y;
+			c1[itmp].z = - c1[itmp].x*p1[itmp].x - c1[itmp].y*p1[itmp].y;
+			c2[itmp].z = - c2[itmp].x*p2[itmp].x - c2[itmp].y*p2[itmp].y;
+			c3[itmp].z = - c3[itmp].x*p3[itmp].x - c3[itmp].y*p3[itmp].y;*/
+			
 		}
 
 		__syncthreads();
-		//////////////////////////
+
+
+		/*//////////////////////////
 		// tile test 16X16
 		//////////////////////////
 		// whole tile outside
@@ -241,6 +256,7 @@ __global__ void triangle_setup_kernel( uint* o_buff, float4* i_verts, unsigned i
 		// tile test 4X4
 		//////////////////////////
 		// whole tile outside
+		
 		/*if(py < 4 && px < 4)
 		{
 			rej[py*4 + px] = (	reject(tx + 4*py, ty + 4*px, blockDim.x/4, blockDim.y/4, p1[0], c1[0]) &&
@@ -252,37 +268,82 @@ __global__ void triangle_setup_kernel( uint* o_buff, float4* i_verts, unsigned i
 		{ 
 			// leave the buffer untouched
 			break;
-		}
+		}*/
 
 		
 		// whole tile inside
-		if(py < 4 && px < 4)
+		/*if(ty < 4 && tx < 4)
 		{
-			acp[py*4 + px] = (	accept(tx + 4*py, ty + 4*px, blockDim.x/4, blockDim.y/4, p1[0], c1[0]) &&
-								accept(tx + 4*py, ty + 4*px, blockDim.x/4, blockDim.y/4, p2[0], c2[0]) &&
-								accept(tx + 4*py, ty + 4*px, blockDim.x/4, blockDim.y/4, p3[0], c3[0]));
-			if(px == 0 && py == 0) acp[py*4 + px] = true;
-			else acp[py*4 + px] = false;
+			acp[ty*4 + tx] = (	accept(bx + 4*ty, by + 4*tx, blockDim.x/4, blockDim.y/4, p1[0], c1[0]) &&
+								accept(bx + 4*ty, by + 4*tx, blockDim.x/4, blockDim.y/4, p2[0], c2[0]) &&
+								accept(bx + 4*ty, by + 4*tx, blockDim.x/4, blockDim.y/4, p3[0], c3[0]));
+			if(tx == 0 && ty == 0) acp[ty*4 + tx] = true;
+			else acp[ty*4 + tx] = false;
 		}
 		__syncthreads();*/
-		if(true)
-		{
-			// update the buffer to be 255s
-			float4 rgba = {0.0f,0.0f,1.0f,0.0f};
-			s_buff[py%4 *4 + px%4][(py/4) *4 + (int)(px/4)] = rgbaFloatToInt(rgba);
-			//break;
-		}
-		__syncthreads();
 
-
+		float r1, r2, r3;
+		for(unsigned int i = 0; i < triFch; i++){
+			
+			r1 = c1[i].x * (xpix - p1[i].x) + c1[i].y * (ypix - p1[i].y);
+			r2 = c2[i].x * (xpix - p2[i].x) + c2[i].y * (ypix - p2[i].y);
+			r3 = c3[i].x * (xpix - p3[i].x) + c3[i].y * (ypix - p3[i].y);
 		
-	//}
+			if(r1 > 0.0f && r2 > 0.0f && r3 > 0.0f)
+			{
+				// update the buffer to be 255s
+				float4 rgba = {1.0f,0.0f,0.0f,0.0f};
+				//s_buff[tx][ty][0] = rgbaFloatToInt(rgba);
+			}
+
+			r1 = c1[i].x * (xpix + 256 - p1[i].x) + c1[i].y * (ypix - p1[i].y);
+			r2 = c2[i].x * (xpix + 256 - p2[i].x) + c2[i].y * (ypix - p2[i].y);
+			r3 = c3[i].x * (xpix + 256 - p3[i].x) + c3[i].y * (ypix - p3[i].y);
+		
+			if(r1 > 0.0f && r2 > 0.0f && r3 > 0.0f)
+			{
+				// update the buffer to be 255s
+				float4 rgba = {1.0f,0.0f,0.0f,0.0f};
+				//s_buff[tx][ty][1] = rgbaFloatToInt(rgba);
+			}
+
+			r1 = c1[i].x * (xpix - p1[i].x) + c1[i].y * (ypix + 256 - p1[i].y);
+			r2 = c2[i].x * (xpix - p2[i].x) + c2[i].y * (ypix + 256 - p2[i].y);
+			r3 = c3[i].x * (xpix - p3[i].x) + c3[i].y * (ypix + 256 - p3[i].y);
+
+			if(r1 > 0.0f && r2 > 0.0f && r3 > 0.0f)
+			{
+				// update the buffer to be 255s
+				float4 rgba = {1.0f,0.0f,0.0f,0.0f};
+				s_buff[tx][ty][2] = rgbaFloatToInt(rgba);
+			}
+
+			r1 = c1[i].x * (xpix + 256 - p1[i].x) + c1[i].y * (ypix + 256 - p1[i].y);
+			r2 = c2[i].x * (xpix + 256 - p2[i].x) + c2[i].y * (ypix + 256 - p2[i].y);
+			r3 = c3[i].x * (xpix + 256 - p3[i].x) + c3[i].y * (ypix + 256 - p3[i].y);
+		
+			if(r1 > 0.0f && r2 > 0.0f && r3 > 0.0f)
+			{
+				// update the buffer to be 255s
+				float4 rgba = {1.0f,0.0f,0.0f,0.0f};
+				s_buff[tx][ty][3] = rgbaFloatToInt(rgba);
+			}
+			__syncthreads();
+		}
+
+		triLeft = triLeft - blockDim.x;
+	}
+
+		__syncthreads();
 	
 	//////////////////////////
 	// copy shared buffer back to global memory
 	//////////////////////////
-	o_buff[(py)*16 + 0 + px] = s_buff[px][py];
-	
+	//o_buff[px + py*gridDim.x*blockDim.x*2] = s_buff[tx][ty][0];
+	//o_buff[gridDim.x*blockDim.x + px + py*gridDim.x*blockDim.x*2] = s_buff[tx][ty][1];
+	o_buff[gridDim.x*blockDim.x*2*gridDim.x*blockDim.x + px + py*gridDim.x*blockDim.x*2] = s_buff[tx][ty][2];
+	o_buff[gridDim.x*blockDim.x*2*gridDim.x*blockDim.x + gridDim.x*blockDim.x + px + py*gridDim.x*blockDim.x*2] = s_buff[tx][ty][3];
+	//o_buff[511] = s_buff[tx][ty];
 }
 
 #endif // #ifndef _TEMPLATE_KERNEL_H_
