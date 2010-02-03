@@ -27,7 +27,6 @@
 
 #include "vecmath.h"
 #include <raster_kernel.cu>
-//#include "bsCamera.h"
 
 typedef unsigned int uint;
 typedef unsigned char uchar;
@@ -103,6 +102,11 @@ int iDivUp(int a, int b){
     return (a % b != 0) ? (a / b + 1) : (a / b);
 }
 
+// Timer
+static int fpsCount = 0;
+static int fpsLimit = 1;
+unsigned int timer;
+
 ////////////////////////////////////////////////////////////////////////////////
 // Program main
 ////////////////////////////////////////////////////////////////////////////////
@@ -120,6 +124,8 @@ void runParticles( int argc, char** argv)
 {
     CUT_DEVICE_INIT(argc, argv);
 
+	cutCreateTimer(&timer);
+	cutResetTimer(timer);
     // Create GL context
     glutInit( &argc, argv);
     glutInitDisplayMode( GLUT_RGBA | GLUT_DOUBLE);
@@ -169,17 +175,21 @@ void runCuda( GLuint vbo, GLuint vbo_out, GLuint pbo)
 	glGetFloatv(GL_MODELVIEW_MATRIX, mv_matrix.array);
 	glGetFloatv(GL_PROJECTION_MATRIX, pr_matrix.array);
 	mvp_matrix = pr_matrix * mv_matrix;
+	glutReportErrors();
 
 	Mtx4f vp_matrix;
 	getViewportMatrix(vp_matrix);
-
+	glutReportErrors();
+	
 	//create matrix vbo
 	createMatrixVBO( &mvpMatrix, mvp_matrix.array, &vpMatrix, vp_matrix.array);
-    
+    glutReportErrors();
+
 	float *mvpmptr;
 	float *vpmptr;
 	CUDA_SAFE_CALL(cudaGLMapBufferObject( (void**)&mvpmptr, mvpMatrix));
     CUDA_SAFE_CALL(cudaGLMapBufferObject( (void**)&vpmptr, vpMatrix));
+	glutReportErrors();
 
 	//glGetFloatv(GL_MODELVIEW_MATRIX, m.array);
 	//m.invert();
@@ -193,7 +203,7 @@ void runCuda( GLuint vbo, GLuint vbo_out, GLuint pbo)
     uint *d_output;
     CUDA_SAFE_CALL(cudaGLMapBufferObject((void**)&d_output, pbo));
     CUDA_SAFE_CALL(cudaMemset(d_output, 0, window_width*window_height*4));
-	
+	glutReportErrors();
 
     // execute the kernel
     dim3 block(16, 16, 1);
@@ -209,20 +219,25 @@ void runCuda( GLuint vbo, GLuint vbo_out, GLuint pbo)
 	//dim3 grid1(32, 32, 1);
 	//triangle_setup_kernel<<<grid1, block1>>>( d_output, dptr, mesh_width*mesh_height, vpt);
 	triangle_setup_kernel<<<grid1, block1>>>( d_output, d_triSrc, mesh_width*mesh_height, vpt);
+	glutReportErrors();
 
-	cudaThreadSynchronize();
+	//cudaThreadSynchronize();
+	glutReportErrors();
 
     // unmap buffer object
 	CUDA_SAFE_CALL(cudaGLUnmapBufferObject( mvpMatrix));
 	CUDA_SAFE_CALL(cudaGLUnmapBufferObject( vpMatrix));
+	glutReportErrors();
 
 	deleteMatrixVBO( &mvpMatrix, &vpMatrix);
-
+	glutReportErrors();
 	//CUDA_SAFE_CALL(cudaGLUnmapBufferObject( vbo));
 	//CUDA_SAFE_CALL(cudaGLUnmapBufferObject( vbo_out));
 	CUDA_SAFE_CALL(cudaGLUnmapBufferObject( pbo));
+	glutReportErrors();
 
-	cudaThreadExit();
+	//cudaThreadExit();
+	glutReportErrors();
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -338,19 +353,21 @@ void createVertexVBO(GLuint* vbo, GLuint* vbo_out)
 ////////////////////////////////////////////////////////////////////////////////
 void deleteVertexVBO( GLuint* vbo, GLuint* vbo_out)
 {
-    //glBindBuffer( 1, *vbo);
-    //glDeleteBuffers( 1, vbo);
+    /*glBindBuffer( 1, *vbo);
+    glDeleteBuffers( 1, vbo);
 
-    //CUDA_SAFE_CALL(cudaGLUnregisterBufferObject(*vbo));
+    CUDA_SAFE_CALL(cudaGLUnregisterBufferObject(*vbo));
 
-    //*vbo = 0;
+    *vbo = 0;
 
-	//glBindBuffer( 1, *vbo_out);
-    //glDeleteBuffers( 1, vbo_out);
+	glBindBuffer( 1, *vbo_out);
+    glDeleteBuffers( 1, vbo_out);
 
-    //CUDA_SAFE_CALL(cudaGLUnregisterBufferObject(*vbo_out));
+    CUDA_SAFE_CALL(cudaGLUnregisterBufferObject(*vbo_out));
 
-    //*vbo_out = 0;
+    *vbo_out = 0;*/
+	CUT_CHECK_ERROR_GL();
+	glutReportErrors();
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -367,7 +384,7 @@ void createMatrixVBO(GLuint* mvpMatrix, float* mvp_matrix, GLuint* vpMatrix, flo
 	//temp = {1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1};
 
     // initialize buffer object
-    glBufferData( GL_ARRAY_BUFFER, 16*sizeof(float), mvp_matrix, GL_DYNAMIC_DRAW);
+    glBufferData( GL_ARRAY_BUFFER, 16*sizeof(float), mvp_matrix, GL_STATIC_READ);
     glBindBuffer( GL_ARRAY_BUFFER, 0);
 
     // register buffer object with CUDA
@@ -377,13 +394,14 @@ void createMatrixVBO(GLuint* mvpMatrix, float* mvp_matrix, GLuint* vpMatrix, flo
 	glGenBuffers( 1, vpMatrix);
     glBindBuffer( GL_ARRAY_BUFFER, *vpMatrix);
 	
-	glBufferData( GL_ARRAY_BUFFER, 16*sizeof(float), vp_matrix, GL_DYNAMIC_DRAW);
+	glBufferData( GL_ARRAY_BUFFER, 16*sizeof(float), vp_matrix, GL_STATIC_READ);
     glBindBuffer( GL_ARRAY_BUFFER, 0);
 	CUDA_SAFE_CALL(cudaGLRegisterBufferObject(*vpMatrix));
 
     //free(temp);
 
     CUT_CHECK_ERROR_GL();
+	glutReportErrors();
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -391,17 +409,22 @@ void createMatrixVBO(GLuint* mvpMatrix, float* mvp_matrix, GLuint* vpMatrix, flo
 ////////////////////////////////////////////////////////////////////////////////
 void deleteMatrixVBO(GLuint* mvpMatrix, GLuint* vpMatrix)
 {
-    glBindBuffer( 1, *mvpMatrix);
+    glBindBuffer( GL_ARRAY_BUFFER, *mvpMatrix);
+	glutReportErrors();
     glDeleteBuffers( 1, mvpMatrix);
+	glutReportErrors();
 
     CUDA_SAFE_CALL(cudaGLUnregisterBufferObject(*mvpMatrix));
+	glutReportErrors();
 
     *mvpMatrix = 0;
 
-	glBindBuffer( 1, *vpMatrix);
+	glBindBuffer( GL_ARRAY_BUFFER, *vpMatrix);
     glDeleteBuffers( 1, vpMatrix);
+	glutReportErrors();
 
     CUDA_SAFE_CALL(cudaGLUnregisterBufferObject(*vpMatrix));
+	glutReportErrors();
 
     *vpMatrix = 0;
 }
@@ -470,6 +493,7 @@ void display()
 {
     // run CUDA kernel to generate vertex positions
     //runCuda(vbo, vbo_out);
+	cutStartTimer(timer);
 
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
@@ -479,10 +503,8 @@ void display()
     glTranslatef(0.0, 0.0, translate_z);
     glRotatef(rotate_x, 1.0, 0.0, 0.0);
     glRotatef(rotate_y, 0.0, 1.0, 0.0);
-
 	// run kernel after GL_MODELVIEW matrix has been set
 	runCuda(vbo, vbo_out, pbo);
-
 	//reset GL_MODELVIEW matrix to test transformation done in kernel
 	//glMatrixMode(GL_MODELVIEW);
 	//glPushMatrix();
@@ -505,16 +527,33 @@ void display()
 
 	// draw image from PBO
     glDisable(GL_DEPTH_TEST);
-    glRasterPos2f(-1.73f, -1.73f);
-    glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, pbo);
-    glDrawPixels(window_width, window_height, GL_RGBA, GL_UNSIGNED_BYTE, 0);
-    glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, 0);
-
+    
+	glRasterPos2f(-1.73f, -1.73f);
+    
+	glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, pbo);
+    
+	glDrawPixels(window_width, window_height, GL_RGBA, GL_UNSIGNED_BYTE, 0);
+    
+	glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, 0);
+	
     glutSwapBuffers();
     glutReportErrors();
 
 
     anim += 0.01;
+
+	cutStopTimer(timer);
+	// fps counter
+	//fpsCount++;
+	//if (fpsCount == fpsLimit) {
+		char fps[256];
+		float ifps = 1.f / (cutGetAverageTimerValue(timer) / 1000.f);
+		sprintf(fps, "CUDA Rast(%d x %d): %3.1f fps", window_width, window_height, ifps);
+		glutSetWindowTitle(fps);
+	//	fpsCount = 0;
+	//	fpsLimit = (int)((ifps > 1.f)? ifps : 1.f);
+		cutResetTimer(timer);
+	//}
 }
 
 ////////////////////////////////////////////////////////////////////////////////

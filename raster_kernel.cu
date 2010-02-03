@@ -293,7 +293,7 @@ __global__ void triangle_setup_kernel( uint* o_buff, float4* i_verts, unsigned i
 			{
 				// update the buffer to be 255s
 				float4 rgba = {1.0f,0.0f,0.0f,0.0f};
-				//s_buff[tx][ty][0] = rgbaFloatToInt(rgba);
+				s_buff[tx][ty][0] = rgbaFloatToInt(rgba);
 			}
 
 			r1 = c1[i].x * (xpix + 256 - p1[i].x) + c1[i].y * (ypix - p1[i].y);
@@ -304,7 +304,7 @@ __global__ void triangle_setup_kernel( uint* o_buff, float4* i_verts, unsigned i
 			{
 				// update the buffer to be 255s
 				float4 rgba = {1.0f,0.0f,0.0f,0.0f};
-				//s_buff[tx][ty][1] = rgbaFloatToInt(rgba);
+				s_buff[tx][ty][1] = rgbaFloatToInt(rgba);
 			}
 
 			r1 = c1[i].x * (xpix - p1[i].x) + c1[i].y * (ypix + 256 - p1[i].y);
@@ -339,8 +339,8 @@ __global__ void triangle_setup_kernel( uint* o_buff, float4* i_verts, unsigned i
 	//////////////////////////
 	// copy shared buffer back to global memory
 	//////////////////////////
-	//o_buff[px + py*gridDim.x*blockDim.x*2] = s_buff[tx][ty][0];
-	//o_buff[gridDim.x*blockDim.x + px + py*gridDim.x*blockDim.x*2] = s_buff[tx][ty][1];
+	o_buff[px + py*gridDim.x*blockDim.x*2] = s_buff[tx][ty][0];
+	o_buff[gridDim.x*blockDim.x + px + py*gridDim.x*blockDim.x*2] = s_buff[tx][ty][1];
 	o_buff[gridDim.x*blockDim.x*2*gridDim.x*blockDim.x + px + py*gridDim.x*blockDim.x*2] = s_buff[tx][ty][2];
 	o_buff[gridDim.x*blockDim.x*2*gridDim.x*blockDim.x + gridDim.x*blockDim.x + px + py*gridDim.x*blockDim.x*2] = s_buff[tx][ty][3];
 	//o_buff[511] = s_buff[tx][ty];
