@@ -34,10 +34,11 @@
 ################################################################################
 
 # Add source files here
-EXECUTABLE	:= 	particles_simple
+EXECUTABLE	:= 	cuda_rast
 # Cuda source files (compiled with cudacc)
-CUFILES		:= 	particles_simple.cu \
-    			simple_kernel.cu
+CUFILES		:= 	cuda_rast.cu \
+    			raster_kernel.cu \
+                        transform_kernel.cu
     		
 
 # Additional compiler flags and LIBs to include
